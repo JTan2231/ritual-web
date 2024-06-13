@@ -1,0 +1,21 @@
+.logButton {
+    background-color: transparent;
+    transition: background-color 0.3s;
+}
+
+.logButton:hover {
+    background-color: #dfdfdf;
+}
+
+.entryList {
+  overflow: hidden;
+}
+
+.entryList {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.entryList::-webkit-scrollbar {
+  display: none;
+}
