@@ -1,88 +1,8 @@
 import { useState, useEffect } from 'react';
 import { v4 as uuid } from 'uuid';
+import { initDB, logEntry, getAllEntries, clearObjectStore } from './db/db';
+import { Entry } from './db/types';
 import './main.css';
-
-const API_URL = 'https://ritual-api-production.up.railway.app/'
-const DB_NAME = 'ritual';
-const STORE_NAME = 'entry';
-const DB_VERSION = 2;
-
-function getDBRequest() {
-    return indexedDB.open(DB_NAME, DB_VERSION);
-}
-
-interface Entry {
-    id: string;
-    createdDate: Date;
-    content: string;
-}
-
-// doing all this in react was completely unnecessary i think lol
-
-function logEntry(setterCallback: Function, entry: Entry) {
-    let request = getDBRequest();
-    request.onsuccess = function(event: Event) {
-        let db = (event.target as IDBOpenDBRequest).result;
-        let transaction = db.transaction([STORE_NAME], 'readwrite');
-        let objectStore = transaction.objectStore(STORE_NAME);
-        let request = objectStore.add(entry);
-
-        request.onsuccess = function() {
-            console.log('Data added successfully:', entry);
-            setterCallback((entries: Entry[]) => [...entries, entry]);
-        };
-
-        request.onerror = function(event: Event) {
-            console.error('Error adding data:', (event.target as IDBRequest).error);
-        };
-    };
-}
-
-function getAllEntries(setterCallback: Function) {
-    let request = getDBRequest();
-    request.onsuccess = function(event: Event) {
-        let db = (event.target as IDBOpenDBRequest).result;
-        let transaction: IDBTransaction = db.transaction([STORE_NAME], 'readonly');
-        let objectStore: IDBObjectStore = transaction.objectStore(STORE_NAME);
-        let getRequest = objectStore.getAll();
-
-        getRequest.onsuccess = function(event: Event) {
-            let data = getRequest.result;
-            if (data) {
-                console.log('Data retrieved:', data);
-                setterCallback(data);
-            } else {
-                console.log('No data found for the specified table:', STORE_NAME);
-            }
-        };
-
-        getRequest.onerror = function(event: Event) {
-            console.error('Error retrieving data:', (event.target as IDBRequest).error);
-        };
-    };
-}
-
-function clearObjectStore() {
-    let request = getDBRequest();
-    request.onsuccess = function(event: Event) {
-        let db = (event.target as IDBOpenDBRequest).result;
-        let transaction = db.transaction([STORE_NAME], 'readwrite');
-        let objectStore = transaction.objectStore(STORE_NAME);
-        let clearRequest = objectStore.clear();
-
-        clearRequest.onsuccess = function() {
-            console.log('All entries deleted successfully.');
-        };
-
-        clearRequest.onerror = function(event: Event) {
-            console.error('Error deleting entries:', (event.target as IDBRequest).error);
-        };
-    };
-
-    request.onerror = function(event: Event) {
-        console.error('Error opening database:', (event.target as IDBOpenDBRequest).error);
-    };
-}
 
 function formatDate(date: Date): string {
     if (date) {
@@ -98,40 +18,12 @@ function formatDate(date: Date): string {
 
 export function Main() {
     const [entries, setEntries] = useState<Entry[]>([]);
-
-    const initializeDB = () => {
-        let request = getDBRequest();
-
-        request.onupgradeneeded = function(event: Event) {
-            let db: IDBDatabase = (event.target as IDBOpenDBRequest).result;
-
-            if (!db.objectStoreNames.contains(STORE_NAME)) {
-                db.createObjectStore(STORE_NAME, { keyPath: 'id' });
-            }
-        };
-
-        request.onsuccess = function(event: Event) {
-            console.log('Database opened successfully:', DB_NAME);
-            getAllEntries(setEntries);
-        }
-
-        return;
-    }
+    const [loggedIn, setLoggedIn] = useState(false);
 
     useEffect(() => {
-        if (window.indexedDB && indexedDB.databases) {
-            indexedDB.databases().then((databases) => {
-                databases.forEach((dbInfo) => {
-                    if (dbInfo.name === DB_NAME) {
-                        initializeDB();
-                    }
-                });
-            }).catch((error) => {
-                console.error('Error fetching IndexedDB databases:', error);
-            });
-        } else {
-            console.error('IndexedDB or the databases() method is not supported in this browser.');
-        }
+        initDB(() => {
+            getAllEntries(setEntries);
+        });
     }, []);
 
     const baseButtonStyle = {
@@ -212,7 +104,52 @@ export function Main() {
         );
     };
 
-    return (
+    const LoginPage = () => {
+        const [isExistingUser, setIsExistingUser] = useState(true);
+
+        const padding = '0.25rem';
+
+        return (
+            <div style={{
+                position: 'absolute',
+                left: '50%',
+                top: '50%',
+                transform: 'translate(-50%, -50%)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                width: '10vw',
+                height: '15vh'
+            }}>
+                <input id="email" type="email" placeholder="Email" style={{
+                    width: `calc(100% - 2 * ${padding})`,
+                    padding: padding,
+                    borderRadius: '5px',
+                    margin: '0.25rem 0'
+                }} />
+                {(isExistingUser ? (
+                    <input id="password" type="password" placeholder="Password" style={{
+                        width: `calc(100% - 2 * ${padding})`,
+                        padding: padding,
+                        borderRadius: '5px',
+                        margin: '0.25rem 0'
+                    }} />)
+                    : null)}
+                <button className="logButton" style={baseButtonStyle} onClick={() => {
+                    const email = (document.getElementById('email') as HTMLInputElement).value;
+                    const password = (document.getElementById('password') as HTMLInputElement).value;
+
+                    if (!email) {
+                        return;
+                    }
+
+
+                }}>Login</button>
+            </div>
+        );
+    };
+
+    return (loggedIn ? (
         <div style={{
             position: 'absolute',
             left: '50%',
@@ -228,11 +165,16 @@ export function Main() {
             <AddEntry />
             <EntryTable />
             <button className="logButton" style={baseButtonStyle} onClick={() => {
-                clearObjectStore();
+                for (const name in Object.keys(STORE_NAMES)) {
+                    clearObjectStore(name);
+                }
+
                 setEntries([]);
             }}>Clear</button>
             <hr style={{ width: '100%' }} />
-            <button className="logButton" style={baseButtonStyle}>Get newsletter</button>
-        </div >
+            <button className="logButton" style={baseButtonStyle} onClick={() => getLatestNewsletter()}>Get newsletter</button>
+            <div id="newsletter"></div>
+        </div>
+    ) : <LoginPage />
     );
 }
