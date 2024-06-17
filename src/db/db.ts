@@ -1,54 +1,70 @@
 import { v4 as uuid } from 'uuid';
 import { Entry } from './types';
 
-const API_URL = 'https://ritual-api-production.up.railway.app/'
+export const API_URL = 'http://localhost:5000/'; //'https://ritual-api-production.up.railway.app/'
 const DB_NAME = 'ritual';
 
-const DB_VERSION = 1;
+const DB_VERSION = 3;
 
-const STORE_NAMES = {
+export const STORE_NAMES = {
     user: 'user',
     entry: 'entry',
     newsletter: 'newsletter'
 };
 
-let db: IDBDatabase;
+let _db: IDBDatabase;
 
-// lol
-export function getDB() {
-    if (db) {
-        return db;
+export function formatDate(date: Date): string {
+    if (date) {
+        const month = (date.getMonth() + 1).toString().padStart(2, '0');
+        const day = date.getDate().toString().padStart(2, '0');
+        const year = date.getFullYear().toString();
+
+        return `${month}/${day}/${year}`;
+    } else {
+        return '';
     }
+}
 
-    let request = indexedDB.open(DB_NAME, DB_VERSION);
 
-    request.onupgradeneeded = function(event: Event) {
-        let db: IDBDatabase = (event.target as IDBOpenDBRequest).result;
-
-        for (const name in Object.keys(STORE_NAMES)) {
-            if (!db.objectStoreNames.contains(name)) {
-                if (name === STORE_NAMES.user) {
-                    db.createObjectStore(name, { keyPath: 'email' });
-                } else {
-                    db.createObjectStore(name, { keyPath: 'id' });
-                }
-            }
+export function getDB() {
+    return new Promise<IDBDatabase>((resolve, reject) => {
+        if (_db) {
+            resolve(_db);
         }
 
-        let userStore = db.transaction([STORE_NAMES.user], 'readwrite').objectStore(STORE_NAMES.user);
-        userStore.createIndex('email', 'email', { unique: true });
-    };
+        let request = indexedDB.open(DB_NAME, DB_VERSION);
+
+        request.onupgradeneeded = function(event: Event) {
+            const eventRequest = event.target as IDBOpenDBRequest;
+            let db: IDBDatabase = eventRequest.result;
+
+            for (const name of Object.keys(STORE_NAMES)) {
+                if (!db.objectStoreNames.contains(name)) {
+                    if (name === STORE_NAMES.user) {
+                        db.createObjectStore(name, { keyPath: 'email' });
+                    } else {
+                        db.createObjectStore(name, { keyPath: 'id' });
+                    }
+                }
+            }
+
+            const userStore = eventRequest.transaction!.objectStore(STORE_NAMES.user);
+            if (!userStore.indexNames.contains('email')) {
+                userStore.createIndex('email', 'email', { unique: true });
+            }
+        };
 
 
-    request.onsuccess = function(event: Event) {
-        db = (event.target as IDBOpenDBRequest).result;
-    };
+        request.onsuccess = function(event: Event) {
+            _db = (event.target as IDBOpenDBRequest).result;
+            resolve(_db);
+        };
 
-    request.onerror = function(event: Event) {
-        console.error('Error opening database:', (event.target as IDBOpenDBRequest).error);
-    };
-
-    return db;
+        request.onerror = function(event: Event) {
+            console.error('Error opening database:', (event.target as IDBOpenDBRequest).error);
+        };
+    });
 }
 
 export function initDB(initializationCallback: Function) {
@@ -68,9 +84,8 @@ export function initDB(initializationCallback: Function) {
 
 }
 
-// doing all this in react was completely unnecessary i think lol
-
-export function logEntry(setterCallback: Function, entry: Entry) {
+export async function logEntry(setterCallback: Function, entry: Entry) {
+    const db = await getDB();
     let transaction = db.transaction([STORE_NAMES.entry], 'readwrite');
     let objectStore = transaction.objectStore(STORE_NAMES.entry);
     let request = objectStore.add(entry);
@@ -85,7 +100,8 @@ export function logEntry(setterCallback: Function, entry: Entry) {
     };
 }
 
-export function getAllEntries(setterCallback: Function) {
+export async function getAllEntries(setterCallback: Function) {
+    const db = await getDB();
     let transaction: IDBTransaction = db.transaction([STORE_NAMES.entry], 'readonly');
     let objectStore: IDBObjectStore = transaction.objectStore(STORE_NAMES.entry);
     let getRequest = objectStore.getAll();
@@ -106,26 +122,39 @@ export function getAllEntries(setterCallback: Function) {
 }
 
 // this performs the API call to actually generate the newest letter
-export function getLatestNewsletter() {
-    fetch(API_URL + 'web-newsletter').then((response) => {
+export async function getLatestNewsletter(token: string, entries: Entry[]) {
+    fetch(API_URL + 'web-newsletter', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + token
+        },
+        body: JSON.stringify({
+            entries: entries.map(entry => ({
+                ...entry,
+                createdDate: formatDate(entry.createdDate)
+            }))
+        })
+    }).then((response) => {
         console.log('Response:', response);
         if (response.ok) {
             return response.json();
         }
-    }).then(data => {
+    }).then(async data => {
         const newsletter = {
             id: uuid(),
             createdDate: new Date(),
             content: data.newsletter
         };
 
+        const db = await getDB();
         let transaction = db.transaction([STORE_NAMES.newsletter], 'readwrite');
         let objectStore = transaction.objectStore(STORE_NAMES.newsletter);
         let request = objectStore.add(newsletter);
 
         request.onsuccess = function() {
             console.log('Newsletter saved successfully:', newsletter);
-            document.getElementById('newsletter')!.innerText = data.content;
+            document.getElementById('newsletter')!.innerHTML = data.newsletter;
         };
 
         request.onerror = function(event: Event) {
@@ -140,7 +169,8 @@ export function getLatestNewsletter() {
     });
 }
 
-export function generateAndSetNewsletter() {
+export async function generateAndSetNewsletter(token: string, entries: Entry[]) {
+    const db = await getDB();
     let transaction: IDBTransaction = db.transaction([STORE_NAMES.newsletter], 'readonly');
     let objectStore: IDBObjectStore = transaction.objectStore(STORE_NAMES.newsletter);
 
@@ -151,16 +181,17 @@ export function generateAndSetNewsletter() {
         let cursor = (event.target as IDBRequest).result;
         if (cursor) {
             const newsletter = cursor.value;
+            console.log('Latest newsletter:', newsletter);
             const now = new Date();
             const lastInterval = new Date(now);
             lastInterval.setDate(now.getDate() - now.getDay());
             lastInterval.setHours(9, 0, 0, 0);
 
             if (newsletter.createdDate < lastInterval) {
-                getLatestNewsletter();
+                getLatestNewsletter(token, entries);
             }
         } else {
-            getLatestNewsletter();
+            getLatestNewsletter(token, entries);
         }
     };
 
@@ -169,27 +200,8 @@ export function generateAndSetNewsletter() {
     };
 }
 
-export function userLookup(email: string) {
-    let transaction: IDBTransaction = db.transaction([STORE_NAMES.entry], 'readonly');
-    let objectStore: IDBObjectStore = transaction.objectStore(STORE_NAMES.entry);
-    let index = objectStore.index('email');
-    let getRequest = index.get(email);
-
-    getRequest.onsuccess = function(event: Event) {
-        let data = getRequest.result;
-        if (data) {
-            console.log('Data retrieved:', data);
-        } else {
-            console.log('No data found for the specified username:', email);
-        }
-    };
-
-    getRequest.onerror = function(event: Event) {
-        console.error('Error retrieving data:', (event.target as IDBRequest).error);
-    };
-}
-
-export function clearObjectStore(storeName: string) {
+export async function clearObjectStore(storeName: string) {
+    const db = await getDB();
     let transaction = db.transaction([storeName], 'readwrite');
     let objectStore = transaction.objectStore(storeName);
     let clearRequest = objectStore.clear();

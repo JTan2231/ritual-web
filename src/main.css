@@ -1,3 +1,16 @@
+h1 {
+    font-family: 'monospace', sans-serif;
+}
+
+input {
+    font-family: 'monospace', sans-serif;
+}
+
+button {
+    font-family: 'monospace', sans-serif;
+}
+
+
 .logButton {
     background-color: transparent;
     transition: background-color 0.3s;
