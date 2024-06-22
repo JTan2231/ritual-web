@@ -1,15 +1,23 @@
 import { useState, useEffect, useRef } from 'react';
 import { v4 as uuid } from 'uuid';
-import { STORE_NAMES, API_URL, initDB, logEntry, getAllEntries, clearObjectStore, getLatestNewsletter, formatDate } from './db/db';
-import { Entry } from './db/types';
+import { STORE_NAMES, API_URL, initDB, logEntry, getAllEntries, clearObjectStore, generateAndSetNewsletter, formatDate } from './db/db';
+import { Entry, Newsletter, JSONifiedHTML } from './db/types';
 import './main.css';
 
 export function Main() {
     const [entries, setEntries] = useState<Entry[]>([]);
+    const [loadingNewsletter, setLoadingNewsletter] = useState(false);
+    const [newsletter, setNewsletter] = useState<Newsletter | null>(null);
     const [loggedIn, setLoggedIn] = useState(false);
     const [authToken, setAuthToken] = useState('');
 
     useEffect(() => {
+        setTimeout(() => {
+            document.body.style.transition = 'background-color 5s';
+        }, 500);
+
+        document.body.style.backgroundColor = '#e9f2f0';
+
         initDB(() => {
             getAllEntries(setEntries);
         });
@@ -92,6 +100,22 @@ export function Main() {
             </div>
         );
     };
+
+    const Loading = ({ complete = false }) => {
+        const [dots, setDots] = useState(1);
+
+        useEffect(() => {
+            const interval = setInterval(() => {
+                setDots((prevDots) => (prevDots % 3) + 1);
+            }, 400);
+
+            return () => clearInterval(interval);
+        }, [complete]);
+
+        return (
+            <p style={{ textAlign: 'center' }}>{complete ? '' : 'Asking GPT' + '.'.repeat(dots)}</p>
+        );
+    }
 
     const LoginPage = () => {
         const [isExistingUser, setIsExistingUser] = useState(false);
@@ -217,7 +241,7 @@ export function Main() {
                         }).catch(error => {
                             console.error('Error checking user:', error);
                         });
-                    }, 1000);
+                    }, 500);
                 }} />
                 <input id="password" type="password" placeholder="Password" tabIndex={loginCSSCondition() ? 0 : -1} style={{
                     width: '100%',
@@ -268,8 +292,91 @@ export function Main() {
         );
     };
 
+    const NewsletterDisplay = () => {
+        useEffect(() => {
+            if (!newsletter) return;
+
+            // this feels so needlessly complicated
+            // i'm sure there's a far better way of doing all this
+            //
+            // DFS--traverses the JSONifiedHTML tree and replicates it incrementally in the DOM
+            // individual words within text nodes are treated as separate text-fragment nodes
+
+            const splitText = (text: string) => {
+                return text.split(' ').map((word) => ({
+                    tag: 'text-fragment',
+                    text: word,
+                    attributes: {},
+                    children: []
+                } as JSONifiedHTML)).reverse();
+            }
+
+            let current: JSONifiedHTML = newsletter.html!;
+            let depth = 0;
+            let lastRoot: HTMLElement | null = null;
+            let stack: { node: JSONifiedHTML, depth: number, parent: HTMLElement | null }[] = [{ node: current, depth, parent: null }];
+            const interval = setInterval(() => {
+                if (stack.length === 0) {
+                    clearInterval(interval);
+                    return;
+                }
+
+                const top = stack.pop()!;
+                current = top.node;
+                depth = top.depth;
+
+                if (current.tag === 'text' && current.text) {
+                    for (const fragment of splitText(current.text)) {
+                        stack.push({ node: fragment, depth: depth + 1, parent: top.parent });
+                    }
+                } else if (current.tag === 'text-fragment') {
+                    if (top.parent) {
+                        top.parent.innerHTML += ' ' + current.text;
+                    } else {
+                        document.getElementById('newsletterDisplay')!.innerHTML += ' ' + current.text;
+                    }
+                } else {
+                    if (current.tag !== '[document]') {
+                        const newNode = document.createElement(current.tag);
+                        if (current.attributes) {
+                            for (const [key, value] of Object.entries(current.attributes)) {
+                                newNode.setAttribute(key, value);
+                            }
+                        }
+
+                        if (top.parent) {
+                            console.log(newNode, top.parent);
+                            top.parent.appendChild(newNode);
+                        } else {
+                            document.getElementById('newsletterDisplay')!.appendChild(newNode);
+                        }
+
+                        lastRoot = newNode;
+                    }
+
+                    for (const child of current.children.reverse()) {
+                        stack.push({ node: child, depth: depth + 1, parent: lastRoot });
+                    }
+                }
+            }, 10);
+
+            return () => {
+                clearInterval(interval);
+            };
+        }, [newsletter]);
+
+        return (
+            <div id="newsletterDisplay" style={{
+                minHeight: '100vh',
+                width: '100%',
+                boxShadow: '0 2px 5px 0 rgba(0, 0, 0, 0.1)',
+                marginBottom: '3rem',
+            }}></div>
+        );
+    }
+
     return (loggedIn ? (
-        <div style={{
+        <div id="mainBody" style={{
             position: 'absolute',
             left: '50%',
             transform: 'translateX(-50%)',
@@ -284,15 +391,28 @@ export function Main() {
             <AddEntry />
             <EntryTable />
             <button className="logButton" style={baseButtonStyle} onClick={() => {
-                for (const name of Object.keys(STORE_NAMES)) {
-                    clearObjectStore(name);
-                }
+                //for (const name of Object.keys(STORE_NAMES)) {
+                //    clearObjectStore(name);
+                //}
+
+                clearObjectStore(STORE_NAMES.newsletter);
 
                 setEntries([]);
             }}>Clear</button>
             <hr style={{ width: '100%' }} />
-            <button className="logButton" style={baseButtonStyle} onClick={() => getLatestNewsletter(authToken, entries)}>Get newsletter</button>
-            <div id="newsletter"></div>
+            <button className="logButton" style={baseButtonStyle} onClick={() => {
+                setLoadingNewsletter(true);
+                generateAndSetNewsletter(authToken, entries, (nl: Newsletter) => {
+                    setNewsletter(nl);
+                    setLoadingNewsletter(false);
+
+                    document.body.style.backgroundColor = nl.color;
+                })
+            }}>Get newsletter</button>
+            <div style={{ width: '100%' }}>
+                <Loading complete={!loadingNewsletter} />
+                <NewsletterDisplay />
+            </div>
         </div>
     ) : <LoginPage />
     );

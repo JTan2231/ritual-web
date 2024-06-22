@@ -1,10 +1,10 @@
 import { v4 as uuid } from 'uuid';
-import { Entry } from './types';
+import { Entry, Newsletter } from './types';
 
 export const API_URL = 'http://localhost:5000/'; //'https://ritual-api-production.up.railway.app/'
 const DB_NAME = 'ritual';
 
-const DB_VERSION = 3;
+const DB_VERSION = 5;
 
 export const STORE_NAMES = {
     user: 'user',
@@ -28,7 +28,7 @@ export function formatDate(date: Date): string {
 
 
 export function getDB() {
-    return new Promise<IDBDatabase>((resolve, reject) => {
+    return new Promise<IDBDatabase>((resolve, _) => {
         if (_db) {
             resolve(_db);
         }
@@ -36,6 +36,7 @@ export function getDB() {
         let request = indexedDB.open(DB_NAME, DB_VERSION);
 
         request.onupgradeneeded = function(event: Event) {
+            console.log('upgrading to version', DB_VERSION)
             const eventRequest = event.target as IDBOpenDBRequest;
             let db: IDBDatabase = eventRequest.result;
 
@@ -52,6 +53,11 @@ export function getDB() {
             const userStore = eventRequest.transaction!.objectStore(STORE_NAMES.user);
             if (!userStore.indexNames.contains('email')) {
                 userStore.createIndex('email', 'email', { unique: true });
+            }
+
+            const newsletterStore = eventRequest.transaction!.objectStore(STORE_NAMES.newsletter);
+            if (!newsletterStore.indexNames.contains('newsletter')) {
+                newsletterStore.createIndex('newsletter', 'id', { unique: false });
             }
         };
 
@@ -122,7 +128,10 @@ export async function getAllEntries(setterCallback: Function) {
 }
 
 // this performs the API call to actually generate the newest letter
-export async function getLatestNewsletter(token: string, entries: Entry[]) {
+// 
+// this pattern of passing a setter callback to everything feels a little gross
+export async function getLatestNewsletter(token: string, entries: Entry[], setterCallback: Function) {
+    console.log('generating new newsletter...');
     fetch(API_URL + 'web-newsletter', {
         method: 'POST',
         headers: {
@@ -144,8 +153,10 @@ export async function getLatestNewsletter(token: string, entries: Entry[]) {
         const newsletter = {
             id: uuid(),
             createdDate: new Date(),
-            content: data.newsletter
-        };
+            content: data.newsletter,
+            color: data.color,
+            html: data.jsonified_html
+        } as Newsletter;
 
         const db = await getDB();
         let transaction = db.transaction([STORE_NAMES.newsletter], 'readwrite');
@@ -154,7 +165,7 @@ export async function getLatestNewsletter(token: string, entries: Entry[]) {
 
         request.onsuccess = function() {
             console.log('Newsletter saved successfully:', newsletter);
-            document.getElementById('newsletter')!.innerHTML = data.newsletter;
+            setterCallback(newsletter);
         };
 
         request.onerror = function(event: Event) {
@@ -169,18 +180,18 @@ export async function getLatestNewsletter(token: string, entries: Entry[]) {
     });
 }
 
-export async function generateAndSetNewsletter(token: string, entries: Entry[]) {
+export async function generateAndSetNewsletter(token: string, entries: Entry[], setterCallback: Function) {
     const db = await getDB();
     let transaction: IDBTransaction = db.transaction([STORE_NAMES.newsletter], 'readonly');
     let objectStore: IDBObjectStore = transaction.objectStore(STORE_NAMES.newsletter);
 
-    let index = objectStore.index('id');
+    let index = objectStore.index('newsletter');
     let cursorRequest = index.openCursor(null, 'prev');
 
     cursorRequest.onsuccess = function(event: Event) {
         let cursor = (event.target as IDBRequest).result;
         if (cursor) {
-            const newsletter = cursor.value;
+            const newsletter = cursor.value as Newsletter;
             console.log('Latest newsletter:', newsletter);
             const now = new Date();
             const lastInterval = new Date(now);
@@ -188,10 +199,15 @@ export async function generateAndSetNewsletter(token: string, entries: Entry[]) 
             lastInterval.setHours(9, 0, 0, 0);
 
             if (newsletter.createdDate < lastInterval) {
-                getLatestNewsletter(token, entries);
+                getLatestNewsletter(token, entries, setterCallback);
+            } else {
+                setterCallback(newsletter);
+
+                // for debugging
+                //getLatestNewsletter(token, entries, setterCallback);
             }
         } else {
-            getLatestNewsletter(token, entries);
+            getLatestNewsletter(token, entries, setterCallback);
         }
     };
 

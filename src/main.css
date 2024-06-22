@@ -1,23 +1,18 @@
-h1 {
+* {
     font-family: 'monospace', sans-serif;
 }
 
 input {
-    font-family: 'monospace', sans-serif;
+    background-color: transparent;
 }
-
-button {
-    font-family: 'monospace', sans-serif;
-}
-
 
 .logButton {
-    background-color: transparent;
+    background-color: #00000000;
     transition: background-color 0.3s;
 }
 
 .logButton:hover {
-    background-color: #dfdfdf;
+    background-color: #00000020;
 }
 
 .entryList {
