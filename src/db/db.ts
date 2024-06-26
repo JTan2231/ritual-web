@@ -26,7 +26,6 @@ export function formatDate(date: Date): string {
     }
 }
 
-
 export function getDB() {
     return new Promise<IDBDatabase>((resolve, _) => {
         if (_db) {
@@ -192,7 +191,6 @@ export async function generateAndSetNewsletter(token: string, entries: Entry[], 
         let cursor = (event.target as IDBRequest).result;
         if (cursor) {
             const newsletter = cursor.value as Newsletter;
-            console.log('Latest newsletter:', newsletter);
             const now = new Date();
             const lastInterval = new Date(now);
             lastInterval.setDate(now.getDate() - now.getDay());
@@ -202,12 +200,33 @@ export async function generateAndSetNewsletter(token: string, entries: Entry[], 
                 getLatestNewsletter(token, entries, setterCallback);
             } else {
                 setterCallback(newsletter);
-
-                // for debugging
-                //getLatestNewsletter(token, entries, setterCallback);
             }
         } else {
             getLatestNewsletter(token, entries, setterCallback);
+        }
+    };
+
+    cursorRequest.onerror = function(event: Event) {
+        console.error('Error retrieving data:', (event.target as IDBRequest).error);
+    };
+}
+
+export async function getNewsletterIfExists(setterCallback: Function) {
+    const db = await getDB();
+    let transaction: IDBTransaction = db.transaction([STORE_NAMES.newsletter], 'readonly');
+    let objectStore: IDBObjectStore = transaction.objectStore(STORE_NAMES.newsletter);
+
+    let index = objectStore.index('newsletter');
+    let cursorRequest = index.openCursor(null, 'prev');
+
+    cursorRequest.onsuccess = function(event: Event) {
+        let cursor = (event.target as IDBRequest).result;
+        if (cursor) {
+            const newsletter = cursor.value as Newsletter;
+
+            setterCallback(newsletter);
+        } else {
+            setterCallback(null);
         }
     };
 

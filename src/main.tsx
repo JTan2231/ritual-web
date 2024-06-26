@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { v4 as uuid } from 'uuid';
-import { STORE_NAMES, API_URL, initDB, logEntry, getAllEntries, clearObjectStore, generateAndSetNewsletter, formatDate } from './db/db';
+import { STORE_NAMES, API_URL, initDB, logEntry, getAllEntries, generateAndSetNewsletter, getNewsletterIfExists, formatDate } from './db/db';
 import { Entry, Newsletter, JSONifiedHTML } from './db/types';
 import './main.css';
 
@@ -16,11 +16,7 @@ export function Main() {
             document.body.style.transition = 'background-color 5s';
         }, 500);
 
-        document.body.style.backgroundColor = '#e9f2f0';
-
-        initDB(() => {
-            getAllEntries(setEntries);
-        });
+        document.body.style.backgroundColor = 'white';
     }, []);
 
     const baseButtonStyle = {
@@ -49,19 +45,17 @@ export function Main() {
                     borderRadius: '5px',
                     height: '100%'
                 }}></textarea>
-                <button className="logButton" style={baseButtonStyle} onClick={() => {
+                <button className="logButton" style={{ ...baseButtonStyle, margin: '0.5rem 0 1rem 0' }} onClick={() => {
                     const entryContent = (document.getElementById('entry') as HTMLTextAreaElement).value;
                     if (!entryContent || entryContent.trim() === '') {
                         return;
                     }
 
-                    const entry = {
+                    logEntry(setEntries, {
                         id: uuid(),
-                        createdDate: new Date(),
-                        content: (document.getElementById('entry') as HTMLTextAreaElement).value
-                    };
-
-                    logEntry(setEntries, entry);
+                        content: entryContent,
+                        createdDate: new Date()
+                    });
                 }}>Log</button>
             </div>
         );
@@ -72,7 +66,7 @@ export function Main() {
         const itemMargin = '0.25rem';
 
         return (
-            <div className="entryList" style={{ maxHeight: '35vh', overflowY: 'scroll', padding: 0 }}>
+            <div className="entryList" style={{ overflowY: 'scroll', padding: 0 }}>
                 {entries.sort((a, b) => b.createdDate?.getTime() - a.createdDate?.getTime()).map((entry: Entry) => (
                     <div key={entry.id} style={{
                         width: `calc(100% - 2 * ${itemMargin})`,
@@ -135,64 +129,81 @@ export function Main() {
         const loginCSSCondition = () => userChecked && isExistingUser;
         const newAccountCSSCondition = () => userChecked && !isExistingUser;
 
+        const setError = (error: string) => {
+            const loginError = document.getElementById('loginError')!;
+            loginError.innerText = error;
+            loginError.style.opacity = '1';
+        };
+
+        const clearError = () => {
+            const loginError = document.getElementById('loginError')!;
+            loginError.innerText = '';
+            loginError.style.opacity = '0';
+        }
+
         // wrapping this in a function for organizational purposes
         // since its functionality is determined by whether the user exists
         const getLoginOnClick = () => {
+            const loginCheck = (response: Response) => {
+                if (response.ok) {
+                    setLoggedIn(true);
+                    return response.json();
+                } else {
+                    return { token: '' };
+                }
+            };
+
+            const loginFlow = (endpoint: string, email: string, password: string) => {
+                fetch(API_URL + endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        email: email,
+                        password: password,
+                    })
+                }).then((response) => {
+                    return loginCheck(response);
+                }).then(data => {
+                    if (data.token) {
+                        setAuthToken(data.token);
+
+                        initDB(() => {
+                            getAllEntries(setEntries);
+                            setLoadingNewsletter(true);
+                            getNewsletterIfExists((nl: Newsletter) => {
+                                setLoadingNewsletter(false);
+
+                                if (nl) {
+                                    setNewsletter(nl);
+                                    document.body.style.backgroundColor = nl.color;
+                                }
+                            });
+                        });
+                    }
+                }).catch(error => {
+                    console.error('Error logging in:', error);
+                });
+            };
+
+            const email = () => (document.getElementById('email') as HTMLInputElement).value;
+            const password = () => (document.getElementById('password') as HTMLInputElement).value;
+            const newPassword = () => (document.getElementById('newPassword') as HTMLInputElement).value;
+            const confirmPassword = () => (document.getElementById('confirmPassword') as HTMLInputElement).value;
+
             if (isExistingUser) {
                 return () => {
-                    fetch(API_URL + 'web-login', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            email: (document.getElementById('email') as HTMLInputElement).value,
-                            password: (document.getElementById('password') as HTMLInputElement).value
-                        })
-                    }).then((response) => {
-                        if (response.ok) {
-                            console.log('successful login');
-                            setLoggedIn(true);
-                            return response.json();
-                        } else {
-                            console.error('failed login');
-                            return { token: '' };
-                        }
-                    }).then(data => {
-                        if (data.token) {
-                            setAuthToken(data.token);
-                        }
-                    }).catch(error => {
-                        console.error('Error logging in:', error);
-                    });
+                    loginFlow('web-login', email(), password());
                 }
             } else {
                 return () => {
-                    fetch(API_URL + 'web-register', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            email: (document.getElementById('email') as HTMLInputElement).value,
-                            password: (document.getElementById('newPassword') as HTMLInputElement).value
-                        })
-                    }).then((response) => {
-                        if (response.ok) {
-                            console.log('successful registration');
-                            setLoggedIn(true);
-                            return response.json();
-                        } else {
-                            console.error('failed registration');
-                            return { token: '' };
-                        }
-                    }).then(data => {
-                        if (data.token) {
-                            setAuthToken(data.token);
-                        }
-                    }).catch(error => {
-                        console.error('Error registering:', error);
-                    });
+                    if (newPassword() !== confirmPassword()) {
+                        setError('Passwords do not match');
+                        return;
+                    }
+
+                    loginFlow('web-register', email(), newPassword());
                 }
             }
         };
@@ -231,6 +242,7 @@ export function Main() {
                                 'Content-Type': 'application/json'
                             },
                         }).then((response) => response.json()).then(data => {
+                            clearError();
                             setUserChecked(true);
                             setIsExistingUser(data.exists);
                             if (data.exists) {
@@ -240,6 +252,7 @@ export function Main() {
                             }
                         }).catch(error => {
                             console.error('Error checking user:', error);
+                            setError('Error checking user');
                         });
                     }, 500);
                 }} />
@@ -288,6 +301,7 @@ export function Main() {
                     ...baseButtonStyle,
                     display: userChecked ? 'block' : 'none'
                 }} onClick={getLoginOnClick()}>{isExistingUser ? 'Login' : 'Create Account'}</button>
+                <div id="loginError" style={{ fontSize: '0.8rem', color: 'red', opacity: 0, transition: '0.5s opacity' }}></div>
             </div>
         );
     };
@@ -345,7 +359,6 @@ export function Main() {
                         }
 
                         if (top.parent) {
-                            console.log(newNode, top.parent);
                             top.parent.appendChild(newNode);
                         } else {
                             document.getElementById('newsletterDisplay')!.appendChild(newNode);
@@ -363,7 +376,7 @@ export function Main() {
             return () => {
                 clearInterval(interval);
             };
-        }, [newsletter]);
+        }, []);
 
         return (
             <div id="newsletterDisplay" style={{
@@ -375,43 +388,96 @@ export function Main() {
         );
     }
 
+    const GetNewsletterButton = () => {
+        const latestSunday = new Date();
+        latestSunday.setDate(latestSunday.getDate() - (latestSunday.getDay() + 1) % 7);
+        const newsletterDate = newsletter ? new Date(newsletter.createdDate) : new Date(0);
+
+        const entriesCheck = () => {
+            if (entries.length === 0) {
+                document.getElementById('newsletterError')!.innerText = "Don't you have something you'd like to say?";
+                return false;
+            }
+
+            document.getElementById('newsletterError')!.innerText = '';
+
+            return true;
+        }
+
+        if (newsletterDate >= latestSunday) {
+            return (
+                <button className="logButton" style={baseButtonStyle} onClick={() => {
+                    if (!entriesCheck()) {
+                        return;
+                    }
+
+                    setLoadingNewsletter(true);
+                    getNewsletterIfExists((nl: Newsletter) => {
+                        setNewsletter(nl);
+                        setLoadingNewsletter(false);
+
+                        document.body.style.backgroundColor = nl.color;
+                    })
+                }}>View last newsletter</button>
+            );
+        } else {
+            return (
+                <button className="logButton shining-element" style={baseButtonStyle} onClick={() => {
+                    if (!entriesCheck()) {
+                        return;
+                    }
+
+                    setLoadingNewsletter(true);
+                    generateAndSetNewsletter(authToken, entries, (nl: Newsletter) => {
+                        setNewsletter(nl);
+                        setLoadingNewsletter(false);
+
+                        document.body.style.backgroundColor = nl.color;
+                    })
+                }
+                }>Generate latest newsletter</button>
+            );
+        }
+    }
+
     return (loggedIn ? (
         <div id="mainBody" style={{
             position: 'absolute',
             left: '50%',
             transform: 'translateX(-50%)',
-            width: '25vw',
+            width: '50vw',
             top: 0,
             display: 'flex',
-            flexDirection: 'column',
+            flexDirection: 'row',
             alignItems: 'center',
-            fontFamily: 'Helvetica, sans-serif',
         }}>
-            <h1>Ritual</h1>
-            <AddEntry />
-            <EntryTable />
-            <button className="logButton" style={baseButtonStyle} onClick={() => {
-                //for (const name of Object.keys(STORE_NAMES)) {
-                //    clearObjectStore(name);
-                //}
-
-                clearObjectStore(STORE_NAMES.newsletter);
-
-                setEntries([]);
-            }}>Clear</button>
-            <hr style={{ width: '100%' }} />
-            <button className="logButton" style={baseButtonStyle} onClick={() => {
-                setLoadingNewsletter(true);
-                generateAndSetNewsletter(authToken, entries, (nl: Newsletter) => {
-                    setNewsletter(nl);
-                    setLoadingNewsletter(false);
-
-                    document.body.style.backgroundColor = nl.color;
-                })
-            }}>Get newsletter</button>
-            <div style={{ width: '100%' }}>
-                <Loading complete={!loadingNewsletter} />
-                <NewsletterDisplay />
+            <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                width: '50%',
+                marginBottom: '2rem',
+                marginRight: '1rem'
+            }}>
+                <h1>Ritual</h1>
+                <AddEntry />
+                <EntryTable />
+            </div>
+            <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                alignSelf: 'start',
+                width: '50%',
+                margin: '2rem 0',
+                marginLeft: '1rem'
+            }}>
+                <GetNewsletterButton />
+                <div style={{ width: '100%' }}>
+                    <div id="newsletterError" style={{ color: 'red' }}></div>
+                    <Loading complete={!loadingNewsletter} />
+                    <NewsletterDisplay />
+                </div>
             </div>
         </div>
     ) : <LoginPage />
