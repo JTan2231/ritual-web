@@ -455,6 +455,7 @@ export function Main() {
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
+                alignSelf: 'start',
                 width: '50%',
                 marginBottom: '2rem',
                 marginRight: '1rem'
@@ -474,7 +475,7 @@ export function Main() {
             }}>
                 <GetNewsletterButton />
                 <div style={{ width: '100%' }}>
-                    <div id="newsletterError" style={{ color: 'red' }}></div>
+                    <div id="newsletterError" style={{ color: 'red', textAlign: 'center' }}></div>
                     <Loading complete={!loadingNewsletter} />
                     <NewsletterDisplay />
                 </div>

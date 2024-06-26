@@ -1,7 +1,7 @@
 import { v4 as uuid } from 'uuid';
 import { Entry, Newsletter } from './types';
 
-export const API_URL = 'http://localhost:5000/'; //'https://ritual-api-production.up.railway.app/'
+export const API_URL = 'https://ritual-api-production.up.railway.app/';
 const DB_NAME = 'ritual';
 
 const DB_VERSION = 5;
