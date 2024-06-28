@@ -36,14 +36,13 @@ export function Main() {
                 flexDirection: 'column',
                 alignItems: 'end',
                 width: '100%',
-                height: '15vh'
             }}>
                 <textarea id="entry" placeholder="What did you do today?" style={{
                     resize: 'none',
                     width: `calc(100% - 2 * ${padding})`,
                     padding: padding,
                     borderRadius: '5px',
-                    height: '100%'
+                    height: '20vh'
                 }}></textarea>
                 <button className="logButton" style={{ ...baseButtonStyle, margin: '0.5rem 0 1rem 0' }} onClick={() => {
                     const entryContent = (document.getElementById('entry') as HTMLTextAreaElement).value;
@@ -209,18 +208,7 @@ export function Main() {
         };
 
         return (
-            <div style={{
-                position: 'absolute',
-                left: '50%',
-                top: '40%',
-                transform: 'translate(-50%, -50%)',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                width: '10vw',
-                height: '15vh',
-                fontFamily: 'monospace'
-            }}>
+            <div className="login-page">
                 <h1 style={{ margin: 0 }}>Ritual</h1>
                 <p style={{ textAlign: 'center' }}>Welcome! <br />Enter your email to login or create an account.</p>
                 <input id="email" type="email" placeholder="Email" style={{
@@ -441,38 +429,16 @@ export function Main() {
     }
 
     return (loggedIn ? (
-        <div id="mainBody" style={{
-            position: 'absolute',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            width: '50vw',
-            top: 0,
-            display: 'flex',
-            flexDirection: 'row',
-            alignItems: 'center',
-        }}>
-            <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                alignSelf: 'start',
-                width: '50%',
-                marginBottom: '2rem',
-                marginRight: '1rem'
-            }}>
+        <div id="mainBody" className="main-page">
+            <div className="entry-container">
                 <h1>Ritual</h1>
                 <AddEntry />
+                <button style={{ marginBottom: '1rem' }} className="go-to-newsletter" onClick={() => {
+                    document.getElementById('newsletterContainer')!.scrollIntoView({ behavior: 'smooth' });
+                }}>Go to Newsletter</button>
                 <EntryTable />
             </div>
-            <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                alignSelf: 'start',
-                width: '50%',
-                margin: '2rem 0',
-                marginLeft: '1rem'
-            }}>
+            <div id="newsletterContainer" className="newsletter-container">
                 <GetNewsletterButton />
                 <div style={{ width: '100%' }}>
                     <div id="newsletterError" style={{ color: 'red', textAlign: 'center' }}></div>
